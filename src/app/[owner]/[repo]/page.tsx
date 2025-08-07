@@ -88,8 +88,9 @@ const wikiStyles = `
 `;
 
 // Helper function to generate cache key for localStorage
-const getCacheKey = (owner: string, repo: string, repoType: string, language: string, isComprehensive: boolean = true): string => {
-  return `deepwiki_cache_${repoType}_${owner}_${repo}_${language}_${isComprehensive ? 'comprehensive' : 'concise'}`;
+const getCacheKey = (owner: string, repo: string, repoType: string, language: string, ref: string | null, isComprehensive: boolean = true): string => {
+  const refPart = ref ? `_${ref}` : '';
+  return `deepwiki_cache_${repoType}_${owner}_${repo}${refPart}_${language}_${isComprehensive ? 'comprehensive' : 'concise'}`;
 };
 
 // Helper function to add tokens and other parameters to request body
@@ -192,6 +193,7 @@ export default function RepoWikiPage() {
   const isCustomModelParam = searchParams.get('is_custom_model') === 'true';
   const customModelParam = searchParams.get('custom_model') || '';
   const language = searchParams.get('language') || 'en';
+  const refParam = searchParams.get('ref') || '';
   const repoType = repoUrl?.includes('bitbucket.org')
     ? 'bitbucket'
     : repoUrl?.includes('gitlab.com')
@@ -210,8 +212,9 @@ export default function RepoWikiPage() {
     type: repoType,
     token: token || null,
     localPath: localPath || null,
-    repoUrl: repoUrl || null
-  }), [owner, repo, repoType, localPath, repoUrl, token]);
+    repoUrl: repoUrl || null,
+    ref: refParam || null
+  }), [owner, repo, repoType, localPath, repoUrl, token, refParam]);
 
   // State variables
   const [isLoading, setIsLoading] = useState(true);
@@ -1564,6 +1567,9 @@ IMPORTANT:
         comprehensive: isComprehensiveView.toString(),
         authorization_code: authCode,
       });
+      if (effectiveRepoInfo.ref) {
+        params.set('ref', effectiveRepoInfo.ref);
+      }
 
       // Add file filters configuration
       if (modelExcludedDirs) {
@@ -1627,7 +1633,7 @@ IMPORTANT:
     console.log('Refreshing wiki. Server cache will be overwritten upon new generation if not cleared.');
 
     // Clear the localStorage cache (if any remnants or if it was used before this change)
-    const localStorageCacheKey = getCacheKey(effectiveRepoInfo.owner, effectiveRepoInfo.repo, effectiveRepoInfo.type, language, isComprehensiveView);
+    const localStorageCacheKey = getCacheKey(effectiveRepoInfo.owner, effectiveRepoInfo.repo, effectiveRepoInfo.type, language, effectiveRepoInfo.ref, isComprehensiveView);
     localStorage.removeItem(localStorageCacheKey);
 
     // Reset cache loaded flag
@@ -1676,6 +1682,9 @@ IMPORTANT:
             language: language,
             comprehensive: isComprehensiveView.toString(),
           });
+          if (effectiveRepoInfo.ref) {
+            params.set('ref', effectiveRepoInfo.ref);
+          }
           const response = await fetch(`/api/wiki_cache?${params.toString()}`);
 
           if (response.ok) {

@@ -55,6 +55,7 @@ export default function WorkshopPage() {
   const isCustomModelParam = searchParams.get('is_custom_model') === 'true';
   const customModelParam = searchParams.get('custom_model') || '';
   const language = searchParams.get('language') || 'en';
+  const refParam = searchParams.get('ref') || '';
 
   // Import language context for translations
   const { messages } = useLanguage();
@@ -66,8 +67,9 @@ export default function WorkshopPage() {
     type: repoType,
     token: token || null,
     localPath: localPath || null,
-    repoUrl: repoUrl || null
-  }), [owner, repo, repoType, token, localPath, repoUrl]);
+    repoUrl: repoUrl || null,
+    ref: refParam || null
+  }), [owner, repo, repoType, token, localPath, repoUrl, refParam]);
 
   // State variables
   const [isLoading, setIsLoading] = useState(false);
@@ -118,6 +120,9 @@ export default function WorkshopPage() {
         repo_type: repoInfo.type,
         language: language,
       });
+      if (repoInfo.ref) {
+        params.set('ref', repoInfo.ref);
+      }
       const response = await fetch(`/api/wiki_cache?${params.toString()}`);
 
       if (response.ok) {
