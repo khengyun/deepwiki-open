@@ -14,6 +14,7 @@ interface ProcessedProject {
   repo_type: string;
   submittedAt: number;
   language: string;
+  ref?: string | null;
 }
 
 interface RepoGroup {
@@ -288,6 +289,9 @@ export default function ProcessedProjects({
                     </span>
                     <span className="px-2 py-1 text-xs bg-[var(--background)] text-[var(--muted)] rounded-full border border-[var(--border-color)]">
                       {selectedProject.language}
+                    </span>
+                    <span className="px-2 py-1 text-xs bg-[var(--background)] text-[var(--muted)] rounded-full border border-[var(--border-color)]">
+                      Ref: {project.ref || 'default'}
                     </span>
                   </div>
                   <p className="text-xs text-[var(--muted)]">

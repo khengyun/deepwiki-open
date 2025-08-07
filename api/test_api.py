@@ -1,7 +1,9 @@
 import requests
 import json
 import sys
+import pytest
 
+@pytest.mark.skip(reason="integration test requires running backend server")
 def test_streaming_endpoint(repo_url, query, file_path=None):
     """
     Test the streaming endpoint with a given repository URL and query.

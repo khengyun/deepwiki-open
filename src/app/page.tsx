@@ -76,6 +76,7 @@ export default function Home() {
   };
 
   const [repositoryInput, setRepositoryInput] = useState('https://github.com/AsyncFuncAI/deepwiki-open');
+  const [gitRef, setGitRef] = useState('');
 
   const REPO_CONFIG_CACHE_KEY = 'deepwikiRepoConfigCache';
 
@@ -98,6 +99,7 @@ export default function Home() {
           setExcludedFiles(config.excludedFiles || '');
           setIncludedDirs(config.includedDirs || '');
           setIncludedFiles(config.includedFiles || '');
+          setGitRef(config.ref || '');
         }
       }
     } catch (error) {
@@ -322,6 +324,7 @@ export default function Home() {
           excludedFiles,
           includedDirs,
           includedFiles,
+          ref: gitRef,
         };
         existingConfigs[currentRepoUrl] = configToSave;
         localStorage.setItem(REPO_CONFIG_CACHE_KEY, JSON.stringify(existingConfigs));
@@ -374,6 +377,9 @@ export default function Home() {
     }
     if (includedFiles) {
       params.append('included_files', includedFiles);
+    }
+    if (gitRef) {
+      params.append('ref', gitRef);
     }
 
     // Add language parameter
@@ -470,6 +476,8 @@ export default function Home() {
             setIncludedDirs={setIncludedDirs}
             includedFiles={includedFiles}
             setIncludedFiles={setIncludedFiles}
+            gitRef={gitRef}
+            setGitRef={setGitRef}
             onSubmit={handleGenerateWiki}
             isSubmitting={isSubmitting}
             authRequired={authRequired}
