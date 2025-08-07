@@ -56,6 +56,7 @@ class ProcessedProjectEntry(BaseModel):
     repo_type: str # Renamed from type to repo_type for clarity with existing models
     submittedAt: int # Timestamp
     language: str # Extracted from filename
+    ref: Optional[str] = None
 
 class RepoInfo(BaseModel):
     owner: str
@@ -582,7 +583,8 @@ async def root():
 async def get_processed_projects():
     """
     Lists all processed projects found in the wiki cache directory.
-    Projects are identified by files named like: deepwiki_cache_{repo_type}_{owner}_{repo}_{language}.json
+    Projects are identified by files named like: deepwiki_cache_{repo_type}_{owner}_{repo}_{ref}_{language}.json
+    (the ref segment is optional for backwards compatibility)
     """
     project_entries: List[ProcessedProjectEntry] = []
     # WIKI_CACHE_DIR is already defined globally in the file
@@ -602,14 +604,15 @@ async def get_processed_projects():
                     stats = await asyncio.to_thread(os.stat, file_path) # Use asyncio.to_thread for os.stat
                     parts = filename.replace("deepwiki_cache_", "").replace(".json", "").split('_')
 
-                    # Expecting repo_type_owner_repo_language
-                    # Example: deepwiki_cache_github_AsyncFuncAI_deepwiki-open_en.json
-                    # parts = [github, AsyncFuncAI, deepwiki-open, en]
-                    if len(parts) >= 4:
+                    # Expecting repo_type_owner_repo[_ref]_language
+                    # Example (with ref): deepwiki_cache_github_AsyncFuncAI_deepwiki-open_main_en.json
+                    # parts = [github, AsyncFuncAI, deepwiki-open, main, en]
+                    if len(parts) >= 5:
                         repo_type = parts[0]
                         owner = parts[1]
-                        language = parts[-1] # language is the last part
-                        repo = "_".join(parts[2:-1]) # repo can contain underscores
+                        language = parts[-1]
+                        ref = parts[-2]
+                        repo = "_".join(parts[2:-2])
 
                         project_entries.append(
                             ProcessedProjectEntry(
@@ -618,7 +621,26 @@ async def get_processed_projects():
                                 repo=repo,
                                 name=f"{owner}/{repo}",
                                 repo_type=repo_type,
-                                submittedAt=int(stats.st_mtime * 1000), # Convert to milliseconds
+                                submittedAt=int(stats.st_mtime * 1000),
+                                language=language,
+                                ref=ref
+                            )
+                        )
+                    elif len(parts) >= 4:
+                        # Backward compatibility for caches without ref
+                        repo_type = parts[0]
+                        owner = parts[1]
+                        language = parts[-1]
+                        repo = "_".join(parts[2:-1])
+
+                        project_entries.append(
+                            ProcessedProjectEntry(
+                                id=filename,
+                                owner=owner,
+                                repo=repo,
+                                name=f"{owner}/{repo}",
+                                repo_type=repo_type,
+                                submittedAt=int(stats.st_mtime * 1000),
                                 language=language
                             )
                         )

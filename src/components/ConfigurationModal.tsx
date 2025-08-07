@@ -49,6 +49,10 @@ interface ConfigurationModalProps {
   includedFiles: string;
   setIncludedFiles: (value: string) => void;
 
+  // Git reference
+  gitRef: string;
+  setGitRef: (value: string) => void;
+
   // Form submission
   onSubmit: () => void;
   isSubmitting: boolean;
@@ -89,6 +93,8 @@ export default function ConfigurationModal({
   setIncludedDirs,
   includedFiles,
   setIncludedFiles,
+  gitRef,
+  setGitRef,
   onSubmit,
   isSubmitting,
   authRequired,
@@ -133,6 +139,19 @@ export default function ConfigurationModal({
               <div className="bg-[var(--background)]/70 p-3 rounded-md border border-[var(--border-color)] text-sm text-[var(--foreground)]">
                 {repositoryInput}
               </div>
+            </div>
+
+            {/* Git reference */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
+                {t.form?.ref || 'Ref'}
+              </label>
+              <input
+                type="text"
+                value={gitRef}
+                onChange={(e) => setGitRef(e.target.value)}
+                className="input-japanese block w-full px-3 py-2 text-sm rounded-md bg-transparent text-[var(--foreground)] focus:outline-none focus:border-[var(--accent-primary)]"
+              />
             </div>
 
             {/* Language selection */}
