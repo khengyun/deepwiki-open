@@ -25,6 +25,7 @@ export interface ChatCompletionRequest {
   filePath?: string;
   token?: string;
   type?: string;
+  ref?: string;
   provider?: string;
   model?: string;
   language?: string;

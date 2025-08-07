@@ -55,7 +55,8 @@ def count_tokens(text: str, is_ollama_embedder: bool = None) -> int:
         # Rough approximation: 4 characters per token
         return len(text) // 4
 
-def download_repo(repo_url: str, local_path: str, type: str = "github", access_token: str = None) -> str:
+def download_repo(repo_url: str, local_path: str, type: str = "github", ref: str = None,
+                  access_token: str = None) -> str:
     """
     Downloads a Git repository (GitHub, GitLab, or Bitbucket) to a specified local path.
 
@@ -113,6 +114,17 @@ def download_repo(repo_url: str, local_path: str, type: str = "github", access_t
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+
+        # Checkout the specified ref if provided
+        if ref:
+            logger.info(f"Checking out ref {ref}")
+            subprocess.run(
+                ["git", "checkout", ref],
+                check=True,
+                cwd=local_path,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
 
         logger.info("Repository cloned successfully")
         return result.stdout.decode("utf-8")
@@ -413,7 +425,7 @@ def transform_documents_and_save_to_db(
     db.save_state(filepath=db_path)
     return db
 
-def get_github_file_content(repo_url: str, file_path: str, access_token: str = None) -> str:
+def get_github_file_content(repo_url: str, file_path: str, ref: str = None, access_token: str = None) -> str:
     """
     Retrieves the content of a file from a GitHub repository using the GitHub API.
     Supports both public GitHub (github.com) and GitHub Enterprise (custom domains).
@@ -455,6 +467,8 @@ def get_github_file_content(repo_url: str, file_path: str, access_token: str = N
         # Use GitHub API to get file content
         # The API endpoint for getting file content is: /repos/{owner}/{repo}/contents/{path}
         api_url = f"{api_base}/repos/{owner}/{repo}/contents/{file_path}"
+        if ref:
+            api_url += f"?ref={quote(ref)}"
 
         # Fetch file content from GitHub API
         headers = {}
@@ -490,7 +504,7 @@ def get_github_file_content(repo_url: str, file_path: str, access_token: str = N
     except Exception as e:
         raise ValueError(f"Failed to get file content: {str(e)}")
 
-def get_gitlab_file_content(repo_url: str, file_path: str, access_token: str = None) -> str:
+def get_gitlab_file_content(repo_url: str, file_path: str, ref: str = None, access_token: str = None) -> str:
     """
     Retrieves the content of a file from a GitLab repository (cloud or self-hosted).
 
@@ -525,27 +539,29 @@ def get_gitlab_file_content(repo_url: str, file_path: str, access_token: str = N
         # Encode file path
         encoded_file_path = quote(file_path, safe='')
 
-        # Try to get the default branch from the project info
-        default_branch = None
-        try:
-            project_info_url = f"{gitlab_domain}/api/v4/projects/{encoded_project_path}"
-            project_headers = {}
-            if access_token:
-                project_headers["PRIVATE-TOKEN"] = access_token
-            
-            project_response = requests.get(project_info_url, headers=project_headers)
-            if project_response.status_code == 200:
-                project_data = project_response.json()
-                default_branch = project_data.get('default_branch', 'main')
-                logger.info(f"Found default branch: {default_branch}")
-            else:
-                logger.warning(f"Could not fetch project info, using 'main' as default branch")
-                default_branch = 'main'
-        except Exception as e:
-            logger.warning(f"Error fetching project info: {e}, using 'main' as default branch")
-            default_branch = 'main'
+        # Try to get the default branch from the project info if ref not provided
+        if not ref:
+            default_branch = None
+            try:
+                project_info_url = f"{gitlab_domain}/api/v4/projects/{encoded_project_path}"
+                project_headers = {}
+                if access_token:
+                    project_headers["PRIVATE-TOKEN"] = access_token
 
-        api_url = f"{gitlab_domain}/api/v4/projects/{encoded_project_path}/repository/files/{encoded_file_path}/raw?ref={default_branch}"
+                project_response = requests.get(project_info_url, headers=project_headers)
+                if project_response.status_code == 200:
+                    project_data = project_response.json()
+                    default_branch = project_data.get('default_branch', 'main')
+                    logger.info(f"Found default branch: {default_branch}")
+                else:
+                    logger.warning(f"Could not fetch project info, using 'main' as default branch")
+                    default_branch = 'main'
+            except Exception as e:
+                logger.warning(f"Error fetching project info: {e}, using 'main' as default branch")
+                default_branch = 'main'
+            ref = default_branch
+
+        api_url = f"{gitlab_domain}/api/v4/projects/{encoded_project_path}/repository/files/{encoded_file_path}/raw?ref={quote(ref)}"
         # Fetch file content from GitLab API
         headers = {}
         if access_token:
@@ -572,7 +588,7 @@ def get_gitlab_file_content(repo_url: str, file_path: str, access_token: str = N
     except Exception as e:
         raise ValueError(f"Failed to get file content: {str(e)}")
 
-def get_bitbucket_file_content(repo_url: str, file_path: str, access_token: str = None) -> str:
+def get_bitbucket_file_content(repo_url: str, file_path: str, ref: str = None, access_token: str = None) -> str:
     """
     Retrieves the content of a file from a Bitbucket repository using the Bitbucket API.
 
@@ -596,29 +612,31 @@ def get_bitbucket_file_content(repo_url: str, file_path: str, access_token: str 
         owner = parts[-2]
         repo = parts[-1].replace(".git", "")
 
-        # Try to get the default branch from the repository info
-        default_branch = None
-        try:
-            repo_info_url = f"https://api.bitbucket.org/2.0/repositories/{owner}/{repo}"
-            repo_headers = {}
-            if access_token:
-                repo_headers["Authorization"] = f"Bearer {access_token}"
-            
-            repo_response = requests.get(repo_info_url, headers=repo_headers)
-            if repo_response.status_code == 200:
-                repo_data = repo_response.json()
-                default_branch = repo_data.get('mainbranch', {}).get('name', 'main')
-                logger.info(f"Found default branch: {default_branch}")
-            else:
-                logger.warning(f"Could not fetch repository info, using 'main' as default branch")
+        # Try to get the default branch from the repository info if ref not provided
+        if not ref:
+            default_branch = None
+            try:
+                repo_info_url = f"https://api.bitbucket.org/2.0/repositories/{owner}/{repo}"
+                repo_headers = {}
+                if access_token:
+                    repo_headers["Authorization"] = f"Bearer {access_token}"
+
+                repo_response = requests.get(repo_info_url, headers=repo_headers)
+                if repo_response.status_code == 200:
+                    repo_data = repo_response.json()
+                    default_branch = repo_data.get('mainbranch', {}).get('name', 'main')
+                    logger.info(f"Found default branch: {default_branch}")
+                else:
+                    logger.warning(f"Could not fetch repository info, using 'main' as default branch")
+                    default_branch = 'main'
+            except Exception as e:
+                logger.warning(f"Error fetching repository info: {e}, using 'main' as default branch")
                 default_branch = 'main'
-        except Exception as e:
-            logger.warning(f"Error fetching repository info: {e}, using 'main' as default branch")
-            default_branch = 'main'
+            ref = default_branch
 
         # Use Bitbucket API to get file content
         # The API endpoint for getting file content is: /2.0/repositories/{owner}/{repo}/src/{branch}/{path}
-        api_url = f"https://api.bitbucket.org/2.0/repositories/{owner}/{repo}/src/{default_branch}/{file_path}"
+        api_url = f"https://api.bitbucket.org/2.0/repositories/{owner}/{repo}/src/{ref}/{file_path}"
 
         # Fetch file content from Bitbucket API
         headers = {}
@@ -648,7 +666,8 @@ def get_bitbucket_file_content(repo_url: str, file_path: str, access_token: str 
         raise ValueError(f"Failed to get file content: {str(e)}")
 
 
-def get_file_content(repo_url: str, file_path: str, type: str = "github", access_token: str = None) -> str:
+def get_file_content(repo_url: str, file_path: str, type: str = "github", ref: str = None,
+                    access_token: str = None) -> str:
     """
     Retrieves the content of a file from a Git repository (GitHub or GitLab).
 
@@ -664,11 +683,11 @@ def get_file_content(repo_url: str, file_path: str, type: str = "github", access
         ValueError: If the file cannot be fetched or if the URL is not valid
     """
     if type == "github":
-        return get_github_file_content(repo_url, file_path, access_token)
+        return get_github_file_content(repo_url, file_path, ref, access_token)
     elif type == "gitlab":
-        return get_gitlab_file_content(repo_url, file_path, access_token)
+        return get_gitlab_file_content(repo_url, file_path, ref, access_token)
     elif type == "bitbucket":
-        return get_bitbucket_file_content(repo_url, file_path, access_token)
+        return get_bitbucket_file_content(repo_url, file_path, ref, access_token)
     else:
         raise ValueError("Unsupported repository URL. Only GitHub and GitLab are supported.")
 
@@ -682,9 +701,10 @@ class DatabaseManager:
         self.repo_url_or_path = None
         self.repo_paths = None
 
-    def prepare_database(self, repo_url_or_path: str, type: str = "github", access_token: str = None, is_ollama_embedder: bool = None,
-                       excluded_dirs: List[str] = None, excluded_files: List[str] = None,
-                       included_dirs: List[str] = None, included_files: List[str] = None) -> List[Document]:
+    def prepare_database(self, repo_url_or_path: str, type: str = "github", ref: str = None,
+                         access_token: str = None, is_ollama_embedder: bool = None,
+                         excluded_dirs: List[str] = None, excluded_files: List[str] = None,
+                         included_dirs: List[str] = None, included_files: List[str] = None) -> List[Document]:
         """
         Create a new database from the repository.
 
@@ -702,7 +722,7 @@ class DatabaseManager:
             List[Document]: List of Document objects
         """
         self.reset_database()
-        self._create_repo(repo_url_or_path, type, access_token)
+        self._create_repo(repo_url_or_path, type, ref, access_token)
         return self.prepare_db_index(is_ollama_embedder=is_ollama_embedder, excluded_dirs=excluded_dirs, excluded_files=excluded_files,
                                    included_dirs=included_dirs, included_files=included_files)
 
@@ -714,7 +734,7 @@ class DatabaseManager:
         self.repo_url_or_path = None
         self.repo_paths = None
 
-    def _extract_repo_name_from_url(self, repo_url_or_path: str, repo_type: str) -> str:
+    def _extract_repo_name_from_url(self, repo_url_or_path: str, repo_type: str, ref: str = None) -> str:
         # Extract owner and repo name to create unique identifier
         url_parts = repo_url_or_path.rstrip('/').split('/')
 
@@ -727,9 +747,12 @@ class DatabaseManager:
             repo_name = f"{owner}_{repo}"
         else:
             repo_name = url_parts[-1].replace(".git", "")
+        if ref:
+            repo_name = f"{repo_name}_{ref}"
         return repo_name
 
-    def _create_repo(self, repo_url_or_path: str, repo_type: str = "github", access_token: str = None) -> None:
+    def _create_repo(self, repo_url_or_path: str, repo_type: str = "github", ref: str = None,
+                     access_token: str = None) -> None:
         """
         Download and prepare all paths.
         Paths:
@@ -749,7 +772,7 @@ class DatabaseManager:
             # url
             if repo_url_or_path.startswith("https://") or repo_url_or_path.startswith("http://"):
                 # Extract the repository name from the URL
-                repo_name = self._extract_repo_name_from_url(repo_url_or_path, repo_type)
+                repo_name = self._extract_repo_name_from_url(repo_url_or_path, repo_type, ref)
                 logger.info(f"Extracted repo name: {repo_name}")
 
                 save_repo_dir = os.path.join(root_path, "repos", repo_name)
@@ -757,11 +780,13 @@ class DatabaseManager:
                 # Check if the repository directory already exists and is not empty
                 if not (os.path.exists(save_repo_dir) and os.listdir(save_repo_dir)):
                     # Only download if the repository doesn't exist or is empty
-                    download_repo(repo_url_or_path, save_repo_dir, repo_type, access_token)
+                    download_repo(repo_url_or_path, save_repo_dir, repo_type, ref, access_token)
                 else:
                     logger.info(f"Repository already exists at {save_repo_dir}. Using existing repository.")
             else:  # local path
                 repo_name = os.path.basename(repo_url_or_path)
+                if ref:
+                    repo_name = f"{repo_name}_{ref}"
                 save_repo_dir = repo_url_or_path
 
             save_db_file = os.path.join(root_path, "databases", f"{repo_name}.pkl")
@@ -826,7 +851,8 @@ class DatabaseManager:
         logger.info(f"Total transformed documents: {len(transformed_docs)}")
         return transformed_docs
 
-    def prepare_retriever(self, repo_url_or_path: str, type: str = "github", access_token: str = None):
+    def prepare_retriever(self, repo_url_or_path: str, type: str = "github", ref: str = None,
+                          access_token: str = None):
         """
         Prepare the retriever for a repository.
         This is a compatibility method for the isolated API.
@@ -838,4 +864,4 @@ class DatabaseManager:
         Returns:
             List[Document]: List of Document objects
         """
-        return self.prepare_database(repo_url_or_path, type, access_token)
+        return self.prepare_database(repo_url_or_path, type, ref, access_token)
