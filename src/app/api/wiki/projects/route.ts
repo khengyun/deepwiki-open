@@ -9,6 +9,7 @@ interface ApiProcessedProject {
   repo_type: string;
   submittedAt: number;
   language: string;
+  ref?: string | null;
 }
 // Payload for deleting a project cache
 interface DeleteProjectCachePayload {
@@ -16,6 +17,7 @@ interface DeleteProjectCachePayload {
   repo: string;
   repo_type: string;
   language: string;
+  ref?: string | null;
 }
 
 /** Type guard to validate DeleteProjectCachePayload at runtime */
@@ -26,7 +28,8 @@ function isDeleteProjectCachePayload(obj: unknown): obj is DeleteProjectCachePay
     'owner' in obj && typeof (obj as Record<string, unknown>).owner === 'string' && ((obj as Record<string, unknown>).owner as string).trim() !== '' &&
     'repo' in obj && typeof (obj as Record<string, unknown>).repo === 'string' && ((obj as Record<string, unknown>).repo as string).trim() !== '' &&
     'repo_type' in obj && typeof (obj as Record<string, unknown>).repo_type === 'string' && ((obj as Record<string, unknown>).repo_type as string).trim() !== '' &&
-    'language' in obj && typeof (obj as Record<string, unknown>).language === 'string' && ((obj as Record<string, unknown>).language as string).trim() !== ''
+    'language' in obj && typeof (obj as Record<string, unknown>).language === 'string' && ((obj as Record<string, unknown>).language as string).trim() !== '' &&
+    (!('ref' in obj) || typeof (obj as Record<string, unknown>).ref === 'string')
   );
 }
 
@@ -81,9 +84,12 @@ export async function DELETE(request: Request) {
         { status: 400 }
       );
     }
-    const { owner, repo, repo_type, language } = body;
+    const { owner, repo, repo_type, language, ref } = body;
     const params = new URLSearchParams({ owner, repo, repo_type, language });
-    const response = await fetch(`${CACHE_API_ENDPOINT}?${params}`, {
+    if (ref) {
+      params.append('ref', ref);
+    }
+    const response = await fetch(`${CACHE_API_ENDPOINT}?${params.toString()}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
     });

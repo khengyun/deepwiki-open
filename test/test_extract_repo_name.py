@@ -11,6 +11,18 @@ import os
 import sys
 from unittest.mock import Mock, patch
 
+# Mock tiktoken to avoid network calls during import
+import types
+
+class DummyEncoding:
+    def encode(self, text):
+        return []
+
+sys.modules['tiktoken'] = types.SimpleNamespace(
+    get_encoding=lambda name: DummyEncoding(),
+    encoding_for_model=lambda model: DummyEncoding()
+)
+
 # Add the parent directory to the path to import the data_pipeline module
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -66,6 +78,12 @@ class TestExtractRepoNameFromUrl:
         assert result == "owner_repo"
 
         print("✓ Bitbucket URL tests passed")
+
+    def test_extract_repo_name_with_ref(self):
+        """Test that ref suffix is appended"""
+        github_url = "https://github.com/owner/repo"
+        result = self.db_manager._extract_repo_name_from_url(github_url, "github", "dev")
+        assert result == "owner_repo_dev"
     
     def test_extract_repo_name_local_paths(self):
         """Test repository name extraction from local paths"""

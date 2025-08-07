@@ -4,16 +4,15 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { FaTimes, FaTh, FaList } from 'react-icons/fa';
 
-// Interface should match the structure from the API
 interface ProcessedProject {
   id: string;
   owner: string;
   repo: string;
+  ref: string | null;
   name: string;
   repo_type: string;
   submittedAt: number;
   language: string;
-  ref?: string | null;
 }
 
 interface RepoGroup {
@@ -28,7 +27,7 @@ interface ProcessedProjectsProps {
   showHeader?: boolean;
   maxItems?: number;
   className?: string;
-  messages?: Record<string, Record<string, string>>; // Translation messages with proper typing
+  messages?: Record<string, Record<string, string>>;
 }
 
 export default function ProcessedProjects({
@@ -44,7 +43,6 @@ export default function ProcessedProjects({
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [selectedRefs, setSelectedRefs] = useState<Record<string, string>>({});
 
-  // Default messages fallback
   const defaultMessages = {
     title: 'Processed Wiki Projects',
     searchPlaceholder: 'Search projects by name, owner, or repository...',
@@ -115,7 +113,6 @@ export default function ProcessedProjects({
     fetchProjects();
   }, [fetchProjects]);
 
-  // Filter repos based on search query
   const filteredRepos = useMemo(() => {
     let repos = Object.values(projectMap);
     if (searchQuery.trim()) {
@@ -194,9 +191,7 @@ export default function ProcessedProjects({
         </header>
       )}
 
-      {/* Search Bar and View Toggle */}
       <div className="mb-6 flex flex-col sm:flex-row gap-4">
-        {/* Search Bar */}
         <div className="relative flex-1">
           <input
             type="text"
@@ -215,7 +210,6 @@ export default function ProcessedProjects({
           )}
         </div>
 
-        {/* View Toggle */}
         <div className="flex items-center bg-[var(--background)] border border-[var(--border-color)] rounded-lg p-1">
           <button
             onClick={() => setViewMode('card')}
@@ -351,4 +345,3 @@ export default function ProcessedProjects({
     </div>
   );
 }
-

@@ -11,7 +11,7 @@ import { RepoInfo } from '@/types/repoinfo';
 import getRepoUrl from '@/utils/getRepoUrl';
 import { extractUrlDomain, extractUrlPath } from '@/utils/urlDecoder';
 import Link from 'next/link';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FaBitbucket, FaBookOpen, FaComments, FaDownload, FaExclamationTriangle, FaFileExport, FaFolder, FaGithub, FaGitlab, FaHome, FaSync, FaTimes } from 'react-icons/fa';
 // Define the WikiSection and WikiStructure types directly in this file
@@ -88,8 +88,9 @@ const wikiStyles = `
 `;
 
 // Helper function to generate cache key for localStorage
-const getCacheKey = (owner: string, repo: string, repoType: string, language: string, isComprehensive: boolean = true): string => {
-  return `deepwiki_cache_${repoType}_${owner}_${repo}_${language}_${isComprehensive ? 'comprehensive' : 'concise'}`;
+const getCacheKey = (owner: string, repo: string, repoType: string, language: string, ref: string | null, isComprehensive: boolean = true): string => {
+  const refPart = ref ? `_${ref}` : '';
+  return `deepwiki_cache_${repoType}_${owner}_${repo}${refPart}_${language}_${isComprehensive ? 'comprehensive' : 'concise'}`;
 };
 
 // Helper function to add tokens and other parameters to request body
@@ -178,6 +179,7 @@ export default function RepoWikiPage() {
   // Get route parameters and search params
   const params = useParams();
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   // Extract owner and repo from route params
   const owner = params.owner as string;
@@ -192,6 +194,7 @@ export default function RepoWikiPage() {
   const isCustomModelParam = searchParams.get('is_custom_model') === 'true';
   const customModelParam = searchParams.get('custom_model') || '';
   const language = searchParams.get('language') || 'en';
+  const refParam = searchParams.get('ref') || '';
   const repoType = repoUrl?.includes('bitbucket.org')
     ? 'bitbucket'
     : repoUrl?.includes('gitlab.com')
@@ -210,8 +213,9 @@ export default function RepoWikiPage() {
     type: repoType,
     token: token || null,
     localPath: localPath || null,
-    repoUrl: repoUrl || null
-  }), [owner, repo, repoType, localPath, repoUrl, token]);
+    repoUrl: repoUrl || null,
+    ref: refParam || null
+  }), [owner, repo, repoType, localPath, repoUrl, token, refParam]);
 
   // State variables
   const [isLoading, setIsLoading] = useState(true);
@@ -230,6 +234,40 @@ export default function RepoWikiPage() {
   const [currentToken, setCurrentToken] = useState(token); // Track current effective token
   const [effectiveRepoInfo, setEffectiveRepoInfo] = useState(repoInfo); // Track effective repo info with cached data
   const [embeddingError, setEmbeddingError] = useState(false);
+  const [availableRefs, setAvailableRefs] = useState<string[]>([]);
+
+  useEffect(() => {
+    const fetchRefs = async () => {
+      try {
+        const resp = await fetch('/api/wiki/projects');
+        if (!resp.ok) return;
+        const data: {owner: string; repo: string; repo_type: string; ref?: string | null}[] = await resp.json();
+        const refs = Array.from(new Set(
+          data
+            .filter((p) => p.owner === owner && p.repo === repo && p.repo_type === repoType)
+            .map((p) => p.ref || '')
+        ));
+        const current = refParam || '';
+        if (!refs.includes(current)) {
+          refs.push(current);
+        }
+        setAvailableRefs(refs);
+      } catch (e) {
+        console.error('Failed to load refs', e);
+      }
+    };
+    fetchRefs();
+  }, [owner, repo, repoType, refParam]);
+
+  const handleRefChange = (newRef: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (newRef) {
+      params.set('ref', newRef);
+    } else {
+      params.delete('ref');
+    }
+    router.push(`/${owner}/${repo}?${params.toString()}`);
+  };
 
   // Model selection state variables
   const [selectedProviderState, setSelectedProviderState] = useState(providerParam);
@@ -1564,6 +1602,9 @@ IMPORTANT:
         comprehensive: isComprehensiveView.toString(),
         authorization_code: authCode,
       });
+      if (effectiveRepoInfo.ref) {
+        params.set('ref', effectiveRepoInfo.ref);
+      }
 
       // Add file filters configuration
       if (modelExcludedDirs) {
@@ -1627,7 +1668,7 @@ IMPORTANT:
     console.log('Refreshing wiki. Server cache will be overwritten upon new generation if not cleared.');
 
     // Clear the localStorage cache (if any remnants or if it was used before this change)
-    const localStorageCacheKey = getCacheKey(effectiveRepoInfo.owner, effectiveRepoInfo.repo, effectiveRepoInfo.type, language, isComprehensiveView);
+    const localStorageCacheKey = getCacheKey(effectiveRepoInfo.owner, effectiveRepoInfo.repo, effectiveRepoInfo.type, language, effectiveRepoInfo.ref, isComprehensiveView);
     localStorage.removeItem(localStorageCacheKey);
 
     // Reset cache loaded flag
@@ -1676,6 +1717,9 @@ IMPORTANT:
             language: language,
             comprehensive: isComprehensiveView.toString(),
           });
+          if (effectiveRepoInfo.ref) {
+            params.set('ref', effectiveRepoInfo.ref);
+          }
           const response = await fetch(`/api/wiki_cache?${params.toString()}`);
 
           if (response.ok) {
@@ -2048,12 +2092,28 @@ IMPORTANT:
                 )}
               </div>
 
+              {/* Ref selector */}
+              <div className="mb-3 flex items-center text-xs text-[var(--muted)]">
+                <span className="mr-2">Ref:</span>
+                <select
+                  value={effectiveRepoInfo.ref || ''}
+                  onChange={(e) => handleRefChange(e.target.value)}
+                  className="input-japanese px-2 py-1 text-xs rounded bg-transparent border border-[var(--border-color)] text-[var(--foreground)] focus:outline-none focus:border-[var(--accent-primary)]"
+                >
+                  {availableRefs.map(r => (
+                    <option key={r || 'default'} value={r}>
+                      {r || 'default'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* Wiki Type Indicator */}
               <div className="mb-3 flex items-center text-xs text-[var(--muted)]">
                 <span className="mr-2">Wiki Type:</span>
                 <span className={`px-2 py-0.5 rounded-full ${isComprehensiveView
                   ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/30'
-                  : 'bg-[var(--background)] text-[var(--foreground)] border border-[var(--border-color)]'}`}>
+                  : 'bg-[var(--background)] text-[var(--foreground)] border border-[var(--border-color)]'}`}> 
                   {isComprehensiveView
                     ? (messages.form?.comprehensive || 'Comprehensive')
                     : (messages.form?.concise || 'Concise')}
