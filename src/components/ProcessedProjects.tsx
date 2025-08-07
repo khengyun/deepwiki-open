@@ -1,20 +1,18 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { FaTimes, FaTh, FaList } from 'react-icons/fa';
 
-// Interface should match the structure from the API
 interface ProcessedProject {
   id: string;
   owner: string;
   repo: string;
-  ref: string;
+  ref: string | null;
   name: string;
   repo_type: string;
   submittedAt: number;
   language: string;
-  ref?: string | null;
 }
 
 interface RepoGroup {
@@ -29,7 +27,7 @@ interface ProcessedProjectsProps {
   showHeader?: boolean;
   maxItems?: number;
   className?: string;
-  messages?: Record<string, Record<string, string>>; // Translation messages with proper typing
+  messages?: Record<string, Record<string, string>>;
 }
 
 export default function ProcessedProjects({
@@ -45,7 +43,6 @@ export default function ProcessedProjects({
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [selectedRefs, setSelectedRefs] = useState<Record<string, string>>({});
 
-  // Default messages fallback
   const defaultMessages = {
     title: 'Processed Wiki Projects',
     searchPlaceholder: 'Search projects by name, owner, or repository...',
@@ -64,59 +61,58 @@ export default function ProcessedProjects({
     return defaultMessages[key as keyof typeof defaultMessages] || key;
   };
 
-  useEffect(() => {
-    const fetchProjects = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await fetch('/api/wiki/projects');
-        if (!response.ok) {
-          throw new Error(`Failed to fetch projects: ${response.statusText}`);
-        }
-        const data = await response.json();
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        const grouped = (data as ProcessedProject[]).reduce(
-          (acc, project) => {
-            const key = `${project.owner}/${project.repo}`;
-            if (!acc[key]) {
-              acc[key] = {
-                owner: project.owner,
-                repo: project.repo,
-                name: project.name,
-                repo_type: project.repo_type,
-                refs: [],
-              };
-            }
-            acc[key].refs.push(project);
-            return acc;
-          },
-          {} as Record<string, RepoGroup>
-        );
-        setProjectMap(grouped);
-        setSelectedRefs(() => {
-          const defaults: Record<string, string> = {};
-          for (const key in grouped) {
-            defaults[key] = grouped[key].refs[0]?.ref;
-          }
-          return defaults;
-        });
-      } catch (e: unknown) {
-        console.error("Failed to load projects from API:", e);
-        const message = e instanceof Error ? e.message : "An unknown error occurred.";
-        setError(message);
-        setProjectMap({});
-        setSelectedRefs({});
-      } finally {
-        setIsLoading(false);
+  const fetchProjects = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/wiki/projects');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch projects: ${response.statusText}`);
       }
-    };
-
-    fetchProjects();
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      const grouped = (data as ProcessedProject[]).reduce(
+        (acc, project) => {
+          const key = `${project.owner}/${project.repo}`;
+          if (!acc[key]) {
+            acc[key] = {
+              owner: project.owner,
+              repo: project.repo,
+              name: project.name,
+              repo_type: project.repo_type,
+              refs: [],
+            };
+          }
+          acc[key].refs.push(project);
+          return acc;
+        },
+        {} as Record<string, RepoGroup>
+      );
+      setProjectMap(grouped);
+      setSelectedRefs(() => {
+        const defaults: Record<string, string> = {};
+        for (const key in grouped) {
+          defaults[key] = grouped[key].refs[0]?.ref || '';
+        }
+        return defaults;
+      });
+    } catch (e: unknown) {
+      console.error("Failed to load projects from API:", e);
+      const message = e instanceof Error ? e.message : "An unknown error occurred.";
+      setError(message);
+      setProjectMap({});
+      setSelectedRefs({});
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  // Filter repos based on search query
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
+
   const filteredRepos = useMemo(() => {
     let repos = Object.values(projectMap);
     if (searchQuery.trim()) {
@@ -135,13 +131,28 @@ export default function ProcessedProjects({
     setSearchQuery('');
   };
 
-  const handleDelete = async (key: string) => {
-    const group = projectMap[key];
-    if (!group) return;
-    const selectedRef = selectedRefs[key] || group.refs[0]?.ref;
-    const project = group.refs.find((r) => r.ref === selectedRef);
-    if (!project) return;
-    if (!confirm(`Are you sure you want to delete project ${group.name} (${selectedRef})?`)) {
+  const handleDelete = async (projectId: string) => {
+    let project: ProcessedProject | undefined;
+    for (const group of Object.values(projectMap)) {
+      const found = group.refs.find((r) => r.id === projectId);
+      if (found) {
+        project = found;
+        break;
+      }
+    }
+    if (!project) {
+      console.error(`Project with id ${projectId} not found`);
+      alert('Project not found.');
+      return;
+    }
+    const { owner, repo, repo_type, language, ref, name } = project;
+    if (!owner || !repo || !repo_type || !language) {
+      const message = 'Missing required project data for deletion.';
+      console.error(message, { owner, repo, repo_type, language });
+      alert(message);
+      return;
+    }
+    if (!confirm(`Are you sure you want to delete project ${name}${ref ? ` (${ref})` : ''}?`)) {
       return;
     }
     try {
@@ -149,36 +160,18 @@ export default function ProcessedProjects({
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          owner: group.owner,
-          repo: group.repo,
-          repo_type: project.repo_type,
-          language: project.language,
-          ref: project.ref,
+          owner,
+          repo,
+          repo_type,
+          language,
+          ref,
         }),
       });
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({ error: response.statusText }));
         throw new Error(errorBody.error || response.statusText);
       }
-      setProjectMap((prev) => {
-        const newMap = { ...prev };
-        const repo = newMap[key];
-        if (!repo) return prev;
-        repo.refs = repo.refs.filter((r) => r.ref !== project.ref);
-        if (repo.refs.length === 0) {
-          delete newMap[key];
-        }
-        setSelectedRefs((sel) => {
-          const newSel = { ...sel };
-          if (newMap[key]) {
-            newSel[key] = newMap[key].refs[0]?.ref;
-          } else {
-            delete newSel[key];
-          }
-          return newSel;
-        });
-        return newMap;
-      });
+      await fetchProjects();
     } catch (e: unknown) {
       console.error('Failed to delete project:', e);
       alert(`Failed to delete project: ${e instanceof Error ? e.message : 'Unknown error'}`);
@@ -198,9 +191,7 @@ export default function ProcessedProjects({
         </header>
       )}
 
-      {/* Search Bar and View Toggle */}
       <div className="mb-6 flex flex-col sm:flex-row gap-4">
-        {/* Search Bar */}
         <div className="relative flex-1">
           <input
             type="text"
@@ -219,7 +210,6 @@ export default function ProcessedProjects({
           )}
         </div>
 
-        {/* View Toggle */}
         <div className="flex items-center bg-[var(--background)] border border-[var(--border-color)] rounded-lg p-1">
           <button
             onClick={() => setViewMode('card')}
@@ -253,13 +243,14 @@ export default function ProcessedProjects({
         <div className={viewMode === 'card' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' : 'space-y-2'}>
           {filteredRepos.map((repo) => {
             const key = `${repo.owner}/${repo.repo}`;
-            const selectedRef = selectedRefs[key] || repo.refs[0]?.ref;
+            const selectedRef = selectedRefs[key] || repo.refs[0]?.ref || '';
             const selectedProject = repo.refs.find(r => r.ref === selectedRef) || repo.refs[0];
+            if (!selectedProject) return null;
             return viewMode === 'card' ? (
               <div key={key} className="relative p-4 border border-[var(--border-color)] rounded-lg bg-[var(--card-bg)] shadow-sm hover:shadow-md transition-all duration-200 hover:scale-[1.02]">
                 <button
                   type="button"
-                  onClick={() => handleDelete(key)}
+                  onClick={() => handleDelete(selectedProject.id)}
                   className="absolute top-2 right-2 text-[var(--muted)] hover:text-[var(--foreground)]"
                   title="Delete project"
                 >
@@ -272,12 +263,12 @@ export default function ProcessedProjects({
                     className="w-full border border-[var(--border-color)] bg-[var(--background)] text-[var(--foreground)] rounded px-2 py-1 text-sm"
                   >
                     {repo.refs.map(r => (
-                      <option key={r.ref} value={r.ref}>{r.ref}</option>
+                      <option key={r.ref ?? 'default'} value={r.ref ?? ''}>{r.ref ?? 'default'}</option>
                     ))}
                   </select>
                 </div>
                 <Link
-                  href={`/${repo.owner}/${repo.repo}?type=${selectedProject.repo_type}&language=${selectedProject.language}&ref=${selectedProject.ref}`}
+                  href={`/${repo.owner}/${repo.repo}?type=${selectedProject.repo_type}&language=${selectedProject.language}&ref=${selectedProject.ref ?? ''}`}
                   className="block"
                 >
                   <h3 className="text-lg font-semibold text-[var(--link-color)] hover:underline mb-2 line-clamp-2">
@@ -291,7 +282,7 @@ export default function ProcessedProjects({
                       {selectedProject.language}
                     </span>
                     <span className="px-2 py-1 text-xs bg-[var(--background)] text-[var(--muted)] rounded-full border border-[var(--border-color)]">
-                      Ref: {project.ref || 'default'}
+                      Ref: {selectedProject.ref ?? 'default'}
                     </span>
                   </div>
                   <p className="text-xs text-[var(--muted)]">
@@ -303,7 +294,7 @@ export default function ProcessedProjects({
               <div key={key} className="relative p-3 border border-[var(--border-color)] rounded-lg bg-[var(--card-bg)] hover:bg-[var(--background)] transition-colors">
                 <button
                   type="button"
-                  onClick={() => handleDelete(key)}
+                  onClick={() => handleDelete(selectedProject.id)}
                   className="absolute top-2 right-2 text-[var(--muted)] hover:text-[var(--foreground)]"
                   title="Delete project"
                 >
@@ -316,12 +307,12 @@ export default function ProcessedProjects({
                     className="border border-[var(--border-color)] bg-[var(--background)] text-[var(--foreground)] rounded px-2 py-1 text-sm"
                   >
                     {repo.refs.map(r => (
-                      <option key={r.ref} value={r.ref}>{r.ref}</option>
+                      <option key={r.ref ?? 'default'} value={r.ref ?? ''}>{r.ref ?? 'default'}</option>
                     ))}
                   </select>
                 </div>
                 <Link
-                  href={`/${repo.owner}/${repo.repo}?type=${selectedProject.repo_type}&language=${selectedProject.language}&ref=${selectedProject.ref}`}
+                  href={`/${repo.owner}/${repo.repo}?type=${selectedProject.repo_type}&language=${selectedProject.language}&ref=${selectedProject.ref ?? ''}`}
                   className="flex items-center justify-between"
                 >
                   <div className="flex-1 min-w-0">
