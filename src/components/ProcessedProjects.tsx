@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { FaTimes, FaTh, FaList } from 'react-icons/fa';
 
@@ -13,6 +13,7 @@ interface ProcessedProject {
   repo_type: string;
   submittedAt: number;
   language: string;
+  ref?: string;
 }
 
 interface ProcessedProjectsProps {
@@ -53,32 +54,32 @@ export default function ProcessedProjects({
     return defaultMessages[key as keyof typeof defaultMessages] || key;
   };
 
-  useEffect(() => {
-    const fetchProjects = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await fetch('/api/wiki/projects');
-        if (!response.ok) {
-          throw new Error(`Failed to fetch projects: ${response.statusText}`);
-        }
-        const data = await response.json();
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        setProjects(data as ProcessedProject[]);
-      } catch (e: unknown) {
-        console.error("Failed to load projects from API:", e);
-        const message = e instanceof Error ? e.message : "An unknown error occurred.";
-        setError(message);
-        setProjects([]);
-      } finally {
-        setIsLoading(false);
+  const fetchProjects = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/wiki/projects');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch projects: ${response.statusText}`);
       }
-    };
-
-    fetchProjects();
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      setProjects(data as ProcessedProject[]);
+    } catch (e: unknown) {
+      console.error("Failed to load projects from API:", e);
+      const message = e instanceof Error ? e.message : "An unknown error occurred.";
+      setError(message);
+      setProjects([]);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
 
   // Filter projects based on search query
   const filteredProjects = useMemo(() => {
@@ -101,8 +102,21 @@ export default function ProcessedProjects({
     setSearchQuery('');
   };
 
-  const handleDelete = async (project: ProcessedProject) => {
-    if (!confirm(`Are you sure you want to delete project ${project.name}?`)) {
+  const handleDelete = async (projectId: string) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) {
+      console.error(`Project with id ${projectId} not found`);
+      alert('Project not found.');
+      return;
+    }
+    const { owner, repo, repo_type, language, ref, name } = project;
+    if (!owner || !repo || !repo_type || !language) {
+      const message = 'Missing required project data for deletion.';
+      console.error(message, { owner, repo, repo_type, language });
+      alert(message);
+      return;
+    }
+    if (!confirm(`Are you sure you want to delete project ${name}?`)) {
       return;
     }
     try {
@@ -110,17 +124,18 @@ export default function ProcessedProjects({
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          owner: project.owner,
-          repo: project.repo,
-          repo_type: project.repo_type,
-          language: project.language,
+          owner,
+          repo,
+          repo_type,
+          language,
+          ref,
         }),
       });
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({ error: response.statusText }));
         throw new Error(errorBody.error || response.statusText);
       }
-      setProjects(prev => prev.filter(p => p.id !== project.id));
+      await fetchProjects();
     } catch (e: unknown) {
       console.error('Failed to delete project:', e);
       alert(`Failed to delete project: ${e instanceof Error ? e.message : 'Unknown error'}`);
@@ -198,7 +213,7 @@ export default function ProcessedProjects({
               <div key={project.id} className="relative p-4 border border-[var(--border-color)] rounded-lg bg-[var(--card-bg)] shadow-sm hover:shadow-md transition-all duration-200 hover:scale-[1.02]">
                 <button
                   type="button"
-                  onClick={() => handleDelete(project)}
+                  onClick={() => handleDelete(project.id)}
                   className="absolute top-2 right-2 text-[var(--muted)] hover:text-[var(--foreground)]"
                   title="Delete project"
                 >
@@ -228,7 +243,7 @@ export default function ProcessedProjects({
               <div key={project.id} className="relative p-3 border border-[var(--border-color)] rounded-lg bg-[var(--card-bg)] hover:bg-[var(--background)] transition-colors">
                 <button
                   type="button"
-                  onClick={() => handleDelete(project)}
+                  onClick={() => handleDelete(project.id)}
                   className="absolute top-2 right-2 text-[var(--muted)] hover:text-[var(--foreground)]"
                   title="Delete project"
                 >
