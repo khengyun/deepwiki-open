@@ -10,6 +10,9 @@ services:
       - "8001:8001"
     env_file:
       - .env
+    volumes:
+      - ~/.adalflow:/root/.adalflow      # Persist repository and embedding data
+      - ./backend/api/logs:/app/api/logs # Persist log files across container restarts
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
       interval: 30s
